@@ -24,6 +24,7 @@ says which decision enables it. Skip what wasn't chosen.
 17. Dockerfile (D02)
 18. Theme: light/dark, the Comeback way (U04)
 19. Analytics fan-out (G02)
+20. Backend adapter with an in-process mock (C07)
 
 ---
 
@@ -695,3 +696,70 @@ export function track(event: AnalyticsEvent) {
 Load the scripts once in a client `<Analytics />` component mounted in the public layouts only (not auth, wallet or
 checkout), using `@next/third-parties/google` `<GoogleTagManager>` and `next/script` for the rest. Declare the
 `window` globals in `src/types/analytics.d.ts`. Add every vendor origin to the CSP `script-src`/`connect-src`.
+
+## 20. Backend adapter with an in-process mock (C07)
+Contract first: the schemas in `features/*/model/schemas.ts` are the API. The mock implements the same contract.
+```ts
+// src/platform/backend/types.ts
+import type { Market, MarketQuery, Page } from '@/features/markets/model/schemas'
+
+export interface Backend {
+  listMarkets(q: MarketQuery): Promise<Page<Market>>
+  getMarket(symbol: string): Promise<Market | null>
+  // one method per endpoint in docs/API.md
+}
+```
+```ts
+// src/platform/backend/index.ts: server-only selection; client islands go through Route Handlers
+import 'server-only'
+import { serverEnv } from '@/platform/env/env.server'
+import type { Backend } from './types'
+
+export async function backend(): Promise<Backend> {
+  return serverEnv.BACKEND === 'mock'
+    ? (await import('./mock')).mockBackend
+    : (await import('./http')).httpBackend
+}
+```
+```ts
+// src/platform/backend/mock/index.ts
+import 'server-only'
+import { faker } from '@faker-js/faker'
+import { HttpError } from '@/platform/http/http-error'
+import type { Backend } from '../types'
+import { applyQuery, makeMarket, paginate } from './helpers' // seeded factories + query helpers
+
+faker.seed(42) // deterministic data: the same screenshots and tests every run
+const markets = Array.from({ length: 300 }, () => makeMarket())
+
+// Simulated network: latency always, failures only when MOCK_ERROR_RATE > 0.
+async function network() {
+  await new Promise((r) => setTimeout(r, faker.number.int({ min: 150, max: 600 })))
+  if (Math.random() < Number(process.env.MOCK_ERROR_RATE ?? 0)) throw new HttpError(503, 'unavailable', 'Mock outage')
+}
+
+export const mockBackend: Backend = {
+  async listMarkets({ q, quote, sort, cursor, limit }) {
+    await network()
+    // Filter, sort and paginate here like a real API, so the UI can't cheat by loading everything.
+    const rows = applyQuery(markets, { q, quote, sort })
+    return paginate(rows, cursor, limit)
+  },
+  async getMarket(symbol) {
+    await network()
+    return markets.find((m) => m.symbol === symbol) ?? null
+  },
+}
+```
+Notes:
+- Server data access calls `(await backend()).listMarkets(...)`, so it works in prerender, `use cache` and build
+  with no server running. Keep `Math.random`/timers out of cached scopes: the latency simulation runs inside the
+  mock, which is called inside `use cache` functions. If the dev overlay flags it, gate it behind `await io()` or
+  disable latency during build (`process.env.NEXT_PHASE`).
+- Client islands (TanStack, infinite scroll, search) call `app/api/<feature>/route.ts` handlers that delegate to
+  the same `backend()`. They are the same contract, and later a thin proxy to the real API.
+- Realtime: `app/api/stream/route.ts` returns an SSE `ReadableStream` that emits seeded random-walk updates
+  every ~1 s. Call `await connection()` first and stop the interval when `request.signal` aborts.
+- Mutations in the mock write to module-level arrays (per server process). That's fine for a demo; say so in
+  NOTES.md.
+- Tests use MSW handlers built from the same factories (`makeMarket`), so fixtures never drift.

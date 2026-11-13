@@ -17,7 +17,7 @@ renamed, say so and offer its successor.
 - F. Optional features checklist (multi-select, ask first)
 - P. Project shape: P01–P04
 - R. Rendering: R01–R03
-- C. Data and caching: C01–C06
+- C. Data and caching: C01–C07
 - S. State and forms: S01–S03
 - U. UI: U01–U06
 - A. Auth: A01
@@ -54,6 +54,7 @@ ask: "Change anything? Name the rows; everything else is accepted."
 | C04 Mutations | Server Actions (via DAL), Route Handlers for webhooks/public API | Progressive enhancement, `updateTag` |
 | C05 Validation | Zod | Ecosystem default (forms, env, actions) |
 | C06 Realtime | Per brief: none / SSE / WebSocket | — |
+| C07 No backend | Contract-first + backend adapter with an in-process seeded mock | Works in prerender and build; swap to the real API by env |
 | S01 Client state | Zustand (small, per-feature stores) | Minimal, no providers, selector-based |
 | S02 URL state | nuqs | Typed, shareable filters, server-readable |
 | S03 Forms | React Hook Form + Zod (complex), `useActionState` (simple) | Right tool per form size |
@@ -204,6 +205,20 @@ realtime or high-frequency client paths.
 **Pattern:** one connection manager in `platform/realtime` → per-channel subscriptions → an external store
 (`useSyncExternalStore`) or `queryClient.setQueryData`, with updates batched per animation frame. See
 `packs/fintech-exchange.md`.
+
+### C07. Backend strategy when the brief has none
+Most briefs are business-only. **You design the API contract** (`docs/API.md` + Zod schemas in each feature's
+`model/`), derived from the features. Then pick how to stand in for the backend:
+| Option | Compare | Recommend when |
+|---|---|---|
+| **Backend adapter: a `Backend` interface with `mock` (in-process, seeded, latency/error simulation) and `http` implementations, selected by env** | Server Components, prerender and build call the in-process mock directly (no server needs to be running). Client islands reach it through thin Route Handlers. Swap in the real API by changing one env var. | Default. Interviews and greenfield work without an API |
+| MSW everywhere (browser worker + Node server) | The same handlers in dev, tests and Storybook. Intercepting server-side fetches inside Next's server needs `instrumentation.ts` wiring and is fragile under prerender. | You need network-level realism and the app is mostly client-fetched |
+| Next.js as the real backend (Route Handlers/Actions + SQLite/Postgres via Drizzle) | A real persistence layer. More scope, and it's a backend, not a frontend. | The brief explicitly wants a full-stack app |
+| json-server / a separate mock server | Simple REST. Another process to run; no realtime. | Quick throwaway prototypes |
+Always: the mock is deterministic (a seeded faker), simulates latency (e.g. 150–600 ms) and error rates behind
+flags, and paginates, filters and sorts **on the "server" side** like a real API would, so the UI's server/client
+choices are realistic. Realtime is mocked with an SSE Route Handler (or a WS stub) that emits updates. Use MSW in
+tests in addition to the adapter.
 
 ---
 

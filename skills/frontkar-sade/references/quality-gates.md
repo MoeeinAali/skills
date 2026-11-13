@@ -112,6 +112,9 @@ Language-agnostic rules (adapted from the user's gatekeeper review standards):
 - [ ] `next/image` with `sizes` and dimensions, `next/font`, `next/link`. No layout shift from late content.
 - [ ] Metadata through `generateMetadata`/the static `metadata` export, not hand-written `<head>`.
 - [ ] Dev overlay: no blocking-route, blocking-prerender-* or instant-navigation insights on the touched routes.
+- [ ] The slice implements its row of the technique map (`techniques.md`): skeletons sized like the content,
+      debounced search, the right pagination type, virtualization above the row threshold, optimistic updates
+      with rollback, and validation in both places. Each is covered by a test.
 - [ ] RTL apps: logical properties only. Formatting goes through `shared/lib/format`.
 - [ ] A11y: semantic elements, labels, focus management on dialogs and route changes, 44px touch targets on
       mobile.

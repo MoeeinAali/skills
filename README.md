@@ -32,3 +32,6 @@ In your agent, start with the brief:
 > Use frontkar-sade. Here's the project: <paste the definition>
 
 It asks you to pick Express or Full mode, then walks through the decisions before writing any code.
+
+A practice brief (Persian, business-only, no backend or tech details) is in
+[`examples/brief-saraf.fa.md`](examples/brief-saraf.fa.md).

@@ -24,6 +24,7 @@ nobody wrote down can't be defended in a review or an interview.
 | `references/preferences.md` | Phase 0, and again for every Phase 3 question. **The user's own defaults.** They pre-select options and override the neutral catalogue. |
 | `references/decisions.md` | Phase 3. The catalogue: every question, its options, the comparison and the recommendation rule. |
 | `references/nextjs-16.md` | Before Phase 3, then again before writing any routing, rendering, caching or config code. What changed in Next 15/16, and a map of the bundled docs. |
+| `references/techniques.md` | Phase 1 (the technique map), Phase 4, and every Phase 7 slice. Skeletons, infinite scroll, virtualization, search/filter (server vs client), debounce/throttle, validation, optimistic UI, races, resilience. |
 | `references/rendering-and-caching.md` | Phase 3 (rendering and caching rounds) and Phase 4 (the route map). |
 | `references/architecture.md` | Phases 4 to 6. Folder layout, layer and import rules, naming, error model, env. |
 | `references/recipes.md` | Phase 6. Starting code for the HTTP client, env, providers, metrics, vitals, CSP, Docker and CI. |
@@ -61,13 +62,20 @@ The user is often under time pressure, for example in a live interview. So:
 
 ## Phase 1: Brief
 
-Ask the user to paste the project definition, or point to a file. Extract the following and play it back as a
-short **Product Brief** for confirmation:
+Ask the user to paste the project definition, or point to a file. It may be in Persian or English. Reply in the
+user's language, and keep code and docs in English unless asked otherwise.
+
+**Expect a business-only brief.** Most briefs describe the product and features, with no backend, no API, no data
+model and no tech stack. Don't ask the user to design those: deriving them is your job and part of what's being
+evaluated. Infer the entities, the endpoints and the data behaviour from the features, write them down as
+assumptions, and let the user correct them.
+
+Extract the following and play it back as a short **Product Brief** for confirmation:
 
 - product and users (roles, who is anonymous and who is logged in)
 - the feature list as user journeys, each tagged MVP or Later
-- the entities and their source (an existing REST/GraphQL backend with or without OpenAPI, a BaaS, or none, so we
-  mock it)
+- the entities you inferred, with their fields and relations, and their source. Usually there is none, so you
+  design the contract and mock it (decision C07). If the user mentions an existing API or spec, use that instead.
 - the shape of the data: how fresh it must be (static, minutes, seconds, live push), how personal (public,
   per-segment, per-user), how big (list sizes, update rate)
 - the non-functional needs: SEO, traffic and scale, locales/RTL, devices (mobile-first? installable?),
@@ -75,10 +83,15 @@ short **Product Brief** for confirmation:
 - the constraints: the time box, team size, must-use or must-avoid tech, the hosting target
 - the deliverable: what "done" means for this session (demo-able MVP? architecture plus two slices?)
 
+Also build the **technique map**: for each feature, the UI and data techniques it needs (skeletons, pagination
+type, infinite scroll, virtualization, server or client search and filter, debounce/throttle, optimistic
+updates, validation, live updates), using `references/techniques.md` §1. Show it with the Product Brief. It
+makes the senior-level details visible before any code exists.
+
 If the brief matches a domain pack, read it now. Its defaults change several recommendations.
 
-Then ask the scoping questions you could not infer, in **one** round: the time box, the backend situation, the
-hosting target, the must-have deliverable.
+Then ask the scoping questions you could not infer, in **one** round: the time box, whether a real API exists
+(default: no, so contract-first plus a mock), the hosting target, and the must-have deliverable.
 
 ## Phase 2: Mode
 
@@ -136,6 +149,10 @@ Write these into the new repo's `docs/` (from `assets/templates/`):
   - **Folder layout** and **import rules**.
   - **Cache invalidation:** which mutation calls `updateTag`, `revalidateTag` or `refresh` on what.
   - **NFR budgets:** LCP, INP, CLS, the JS budget per route, and the targets for the error rate and availability.
+- `docs/API.md`: the API contract you designed. Each endpoint has its method, path, query params
+  (pagination/filter/sort), request and response shapes (pointing to the Zod schemas), error codes, and the
+  realtime channels. It's written as if for a backend team, so it can be handed over.
+- **The technique map** from Phase 1, as a table (feature → techniques → where implemented).
 - `AGENTS.md` (plus a `CLAUDE.md` that only says `@AGENTS.md`), from `assets/templates/AGENTS.md`. It holds the
   project's rules for any agent working here later. Keep the Next.js managed block that `create-next-app` and
   `next dev` write.
@@ -168,14 +185,17 @@ adapt it to the decisions. The usual order, skipping what wasn't chosen:
 
 1. env schema and config, the error model, logging
 2. the HTTP client / API layer (generated OpenAPI types if a spec exists, otherwise hand-written Zod-validated
-   contracts) and the mock layer (MSW) when the backend isn't ready
-3. the providers (query client, theme, i18n), the root layout, fonts, metadata defaults, `not-found`, `error`,
+   contracts) and the **backend adapter with an in-process mock** (`recipes.md` §20): seeded data, simulated
+   latency and errors, server-side pagination/filter/sort, an SSE stream for live data, plus MSW for tests
+3. the shared technique primitives the map needs: `Skeleton`, `useDebouncedValue`, `useThrottledCallback`, the
+   Persian text normalizer, an infinite-list + virtualizer component, `EmptyState`, `SectionError` with retry
+4. the providers (query client, theme, i18n), the root layout, fonts, metadata defaults, `not-found`, `error`,
    `global-error`, `loading` and the shared shell (header, nav, footer)
-4. design tokens, the UI primitives and the dark-mode/RTL plumbing
-5. auth: `proxy.ts` for optimistic redirects, a server-only session read in the data access layer, the login flow
-6. observability: web vitals, `/metrics`, tracing, error reporting, health endpoints
-7. security headers and CSP, PWA/manifest/service worker
-8. the test harness (unit, component, e2e configs, a sample test of each kind) and CI
+5. design tokens, the UI primitives and the dark-mode/RTL plumbing
+6. auth: `proxy.ts` for optimistic redirects, a server-only session read in the data access layer, the login flow
+7. observability: web vitals, `/metrics`, tracing, error reporting, health endpoints
+8. security headers and CSP, PWA/manifest/service worker
+9. the test harness (unit, component, e2e configs, a sample test of each kind) and CI
 
 Each item ends green on `scripts/gates.sh` and gets its own commit. Use TDD where there's logic, such as mappers,
 formatters and reducers. Infra wiring is proven by a test or a manual check you actually ran, not by assuming it
@@ -185,13 +205,15 @@ works.
 
 Take the slices from `docs/PLAN.md` one at a time, MVP first. Each slice is vertical: contract and types → server
 data access (cached or not, as the route map says) → mutations and their invalidation → UI with loading, empty,
-error and success states → tests → docs.
+error and success states → the slice's techniques from the technique map → tests → docs.
 
 For each slice:
 
 1. Re-read the route map rows it touches. If the slice needs a rendering or caching choice that isn't in the map,
    stop and update the map (and the ADR if the change is material) before coding.
-2. Write the failing tests first for the logic and for the user-visible behaviour (component test or e2e).
+2. Write the failing tests first for the logic and for the user-visible behaviour (component test or e2e),
+   including the slice's techniques (`techniques.md` §11: debounce with fake timers, the infinite list loads the
+   next page, the optimistic toggle rolls back, the server rejects invalid input).
 3. Implement. Keep route files thin. Respect the import boundaries.
 4. Run `scripts/gates.sh`. For routes on Cache Components, also check the dev overlay or the build output for
    blocking-route and instant-navigation insights, because they are real defects, not noise.
