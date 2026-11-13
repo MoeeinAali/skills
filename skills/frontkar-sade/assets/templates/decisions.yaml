@@ -1,0 +1,38 @@
+# docs/decisions.yaml: the machine-readable record of Phase 3.
+# One entry per decision id from references/decisions.md. Skipped areas use `choice: skipped` with a reason.
+project:
+  name: <name>
+  brief: docs/BRIEF.md
+  mode: express # express | full
+  domain_pack: fintech-exchange # or ecommerce | dashboard-saas | content-media | none
+  timebox: 3h
+next:
+  version: 16.4.x # filled after scaffold from node_modules/next/package.json
+features: # F01 checklist
+  unit_tests: true
+  component_tests: true
+  e2e: true
+  github_ci: true
+  pwa: false
+  twa: false
+  web_vitals: true
+  prometheus_metrics: true
+  otel: false
+  sentry: false
+  i18n: true
+  rtl: true
+decisions:
+  P04:
+    choice: feature-modules
+    why: "12 features, likely multiple teams; boundaries enforced by lint"
+    adr: docs/adr/0002-feature-modules.md
+  R01:
+    choice: cache-components
+    why: "public market pages need SEO + instant shell; balances are per-user and live"
+    adr: docs/adr/0001-rendering.md
+  C06:
+    choice: websocket
+    why: "order book updates ~10/s"
+  W01:
+    choice: skipped
+    why: "not in brief; listed as follow-up"
