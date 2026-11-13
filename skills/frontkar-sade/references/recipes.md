@@ -15,7 +15,7 @@ says which decision enables it. Skip what wasn't chosen.
 8. Health endpoints (D02)
 9. Metrics: prom-client on a private port (O02)
 10. Web vitals → Prometheus (O01)
-11. Security headers (X01)
+11. Security headers and CSP (X01)
 12. Vitest (T01/T02)
 13. Playwright + instant() (T03)
 14. ESLint boundaries (Q02)
@@ -32,6 +32,7 @@ says which decision enables it. Skip what wasn't chosen.
 Docs: `03-api-reference/05-config/01-next-config-js/*`
 ```ts
 import type { NextConfig } from 'next'
+import { securityHeaders } from './src/platform/security/headers' // security.md §3
 
 const nextConfig: NextConfig = {
   cacheComponents: true,
@@ -50,7 +51,8 @@ const nextConfig: NextConfig = {
     exposeTestingApiInProductionBuild: process.env.EXPOSE_TESTING_API === '1',
   },
   async headers() {
-    return [{ source: '/:path*', headers: securityHeaders }] // §11
+    // Security headers on everything, plus the cache rules for sw.js and unhashed public/ files (delivery.md §3).
+    return [{ source: '/:path*', headers: securityHeaders }]
   },
 }
 
@@ -69,6 +71,7 @@ const schema = z.object({
   API_INTERNAL_URL: z.url(),
   SESSION_COOKIE_NAME: z.string().default('sid'),
   METRICS_PORT: z.coerce.number().int().default(9464),
+  DEPLOY_ENV: z.enum(['local', 'staging', 'production']).default('local'), // drives noindex, not NODE_ENV
 })
 
 export const serverEnv = schema.parse(process.env)
@@ -78,8 +81,11 @@ export const serverEnv = schema.parse(process.env)
 import { z } from 'zod'
 
 export const clientEnv = z
-  .object({ NEXT_PUBLIC_API_URL: z.url() })
-  .parse({ NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL })
+  .object({ NEXT_PUBLIC_API_URL: z.url(), NEXT_PUBLIC_SITE_URL: z.url() })
+  .parse({
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+    NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL, // metadataBase, canonicals, sitemap
+  })
 ```
 (`z.url()` is Zod 4. On Zod 3 it's `z.string().url()`.)
 
@@ -394,31 +400,16 @@ export async function POST(req: Request) {
 ```
 Rate-limit this endpoint at the edge or LB, because it's public and unauthenticated.
 
-## 11. Security headers (X01)
+## 11. Security headers and CSP (X01)
 Docs: `02-guides/content-security-policy.md`
-```ts
-const csp = [
-  "default-src 'self'",
-  "script-src 'self'",              // add hashes / analytics origins as needed; 'unsafe-eval' only in dev
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https:",
-  "font-src 'self'",
-  "connect-src 'self' https://api.example.com wss://stream.example.com",
-  "frame-ancestors 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-].join('; ')
 
-const securityHeaders = [
-  { key: 'Content-Security-Policy', value: csp },
-  { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
-  { key: 'X-Content-Type-Options', value: 'nosniff' },
-  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
-]
-```
-Next's own inline scripts need either a nonce (dynamic rendering) or the hashes/`strict-dynamic` approach. Read the
-CSP guide's "Without Nonces" and SRI sections, then verify in the browser console that nothing is blocked.
+The code lives in `security.md`: `buildCsp` (§2), `securityHeaders` (§3), the `/api/csp-report` route and the
+nonce `proxy.ts` for tier C. Start in Report-Only (`Content-Security-Policy-Report-Only`) and switch to enforcing
+once the main journey logs no violations.
+
+The trap: `script-src 'self'` alone (no `'unsafe-inline'`, nonce or SRI) blocks Next's inline RSC scripts and
+breaks hydration in production. And a hash or nonce next to `'unsafe-inline'` makes browsers ignore
+`'unsafe-inline'`. Pick one tier from X01 and verify it in a production build with the browser console open.
 
 ## 12. Vitest (T01/T02)
 Docs: `02-guides/testing/vitest.md`
@@ -667,7 +658,9 @@ export const useThemeStore = create<ThemeState>()(
 [data-theme='dark'] { color-scheme: dark; --background: #111517; --foreground: #f5f7fa; }
 @theme inline { --color-background: var(--background); --color-foreground: var(--foreground); }
 ```
-With a CSP, the inline boot script needs its hash in `script-src` (it's static, so the hash is stable).
+With a CSP: in tier A (`'unsafe-inline'`) the boot script just runs. **Don't add its hash**, because a hash makes
+browsers ignore `'unsafe-inline'` and Next's own inline scripts stop running. In tier C, pass the request nonce
+to the `<script>`. In tier B, verify it isn't blocked, and if it is, the tier isn't viable (`security.md` §2).
 
 ## 19. Analytics fan-out (G02)
 Docs: `02-guides/third-party-libraries.md`, `02-guides/scripts.md`

@@ -26,8 +26,11 @@ nobody wrote down can't be defended in a review or an interview.
 | `references/nextjs-16.md` | Before Phase 3, then again before writing any routing, rendering, caching or config code. What changed in Next 15/16, and a map of the bundled docs. |
 | `references/techniques.md` | Phase 1 (the technique map), Phase 4, and every Phase 7 slice. Skeletons, infinite scroll, virtualization, search/filter (server vs client), debounce/throttle, validation, optimistic UI, races, resilience. |
 | `references/rendering-and-caching.md` | Phase 3 (rendering and caching rounds) and Phase 4 (the route map). |
+| `references/delivery.md` | Phases 3, 4, 6 and every slice. Server Component vs Server Action vs Route Handler vs client fetch, prerendering and prefetch levels, HTTP cache headers and CDN, error pages, offline levels and the service worker. |
+| `references/seo-and-sharing.md` | Phases 3, 4, 6 and every public slice. Per-route index policy, metadata, canonicals, sitemap, robots, JSON-LD, OG images. |
+| `references/security.md` | Phases 3, 6, 8 and every slice that adds an action, a Route Handler, a redirect or rendered HTML. CSP tiers, headers, action and handler hardening, XSS, sessions, supply chain. |
 | `references/architecture.md` | Phases 4 to 6. Folder layout, layer and import rules, naming, error model, env. |
-| `references/recipes.md` | Phase 6. Starting code for the HTTP client, env, providers, metrics, vitals, CSP, Docker and CI. |
+| `references/recipes.md` | Phase 6. Starting code for the HTTP client, env, providers, metrics, vitals, Docker and CI. |
 | `references/quality-gates.md` | Phases 4 and 6 to 8. Test strategy, gate commands, and the review checklist. |
 | `references/packs/<domain>.md` | When the brief matches a domain: `fintech-exchange`, `ecommerce`, `dashboard-saas`, `content-media`. |
 | `assets/templates/*` | Phase 4. ADR, ARCHITECTURE.md, the project's AGENTS.md, and the `decisions.yaml` schema. |
@@ -142,13 +145,16 @@ Write these into the new repo's `docs/` (from `assets/templates/`):
   lint rule, the test or the CI job.
 - `docs/ARCHITECTURE.md` holds:
   - **The route map:** every route, with its rendering strategy, cache scope and lifetime, tags, prefetch level,
-    and the auth it needs (`references/rendering-and-caching.md` shows the format). It is the most persuasive
+    how its client islands read data (`delivery.md` §1), its SEO policy (`seo-and-sharing.md` §1), and the auth it
+    needs (`references/rendering-and-caching.md` shows the format). It is the most persuasive
     artefact in a review, so it must be complete.
   - **Data flow:** a diagram of the layers (`references/architecture.md`), and where validation, caching and
     errors happen.
   - **Folder layout** and **import rules**.
   - **Cache invalidation:** which mutation calls `updateTag`, `revalidateTag` or `refresh` on what.
   - **NFR budgets:** LCP, INP, CLS, the JS budget per route, and the targets for the error rate and availability.
+  - **Delivery and security:** the CSP tier and why, the `Cache-Control` of each response type and the CDN purge
+    path (`delivery.md` §3), the offline level, the error-page set, and the security baseline (X03).
 - `docs/API.md`: the API contract you designed. Each endpoint has its method, path, query params
   (pagination/filter/sort), request and response shapes (pointing to the Zod schemas), error codes, and the
   realtime channels. It's written as if for a backend team, so it can be handed over.
@@ -186,15 +192,22 @@ adapt it to the decisions. The usual order, skipping what wasn't chosen:
 1. env schema and config, the error model, logging
 2. the HTTP client / API layer (generated OpenAPI types if a spec exists, otherwise hand-written Zod-validated
    contracts) and the **backend adapter with an in-process mock** (`recipes.md` §20): seeded data, simulated
-   latency and errors, server-side pagination/filter/sort, an SSE stream for live data, plus MSW for tests
+   latency and errors, server-side pagination/filter/sort, an SSE stream for live data, plus MSW for tests. The
+   Route Handler GET adapters client islands read through (`delivery.md` §1), with explicit `Cache-Control`
 3. the shared technique primitives the map needs: `Skeleton`, `useDebouncedValue`, `useThrottledCallback`, the
    Persian text normalizer, an infinite-list + virtualizer component, `EmptyState`, `SectionError` with retry
-4. the providers (query client, theme, i18n), the root layout, fonts, metadata defaults, `not-found`, `error`,
-   `global-error`, `loading` and the shared shell (header, nav, footer)
+4. the providers (query client, theme, i18n), the root layout, fonts, the shared shell (header, nav, footer),
+   `loading`, and the full **error-page set** (`delivery.md` §4: `not-found`, `error` with `retry`,
+   `global-error`, `SectionError`, `/offline` if L2). **SEO plumbing** if any route is public
+   (`seo-and-sharing.md`): metadata defaults and `viewport`, `robots.ts`, `sitemap.ts`, the `JsonLd` component,
+   the default OG image, staging `noindex`
 5. design tokens, the UI primitives and the dark-mode/RTL plumbing
 6. auth: `proxy.ts` for optimistic redirects, a server-only session read in the data access layer, the login flow
 7. observability: web vitals, `/metrics`, tracing, error reporting, health endpoints
-8. security headers and CSP, PWA/manifest/service worker
+8. security (`security.md`): the CSP tier from X01 in **Report-Only** with `/api/csp-report`, the other headers,
+   `safeNextPath`, `assertSameOrigin`, rate limiting, taint; the cache headers for `sw.js` and `public/`
+   (`delivery.md` §3); the offline level from W03 (`useOffline` banner, and the service worker and `/offline`
+   page for L2); PWA manifest
 9. the test harness (unit, component, e2e configs, a sample test of each kind) and CI
 
 Each item ends green on `scripts/gates.sh` and gets its own commit. Use TDD where there's logic, such as mappers,
@@ -205,7 +218,9 @@ works.
 
 Take the slices from `docs/PLAN.md` one at a time, MVP first. Each slice is vertical: contract and types → server
 data access (cached or not, as the route map says) → mutations and their invalidation → UI with loading, empty,
-error and success states → the slice's techniques from the technique map → tests → docs.
+error and success states → the slice's techniques from the technique map → tests → docs. Along the way: reads by
+the right path (`delivery.md` §1, never reads through actions), prefetch levels on its links, metadata, canonical,
+JSON-LD and OG for public routes, and the X03 baseline on every action and handler it adds.
 
 For each slice:
 
@@ -231,8 +246,13 @@ Run the whole gate set, including e2e against a production build (`next build &&
 - the bundle check (`next analyze` or the chosen budget tool) against the budgets in ARCHITECTURE.md
 - a Lighthouse or web-vitals spot check on the key routes
 - an a11y pass (axe in e2e, keyboard-only walk of the main journey)
-- a security pass: headers, CSP, no secrets in client bundles (search the build output for env values), validated
-  Server Action input, authorization in the data access layer (not only in `proxy.ts`)
+- a security pass (`security.md` §11): headers, the CSP switched from Report-Only to enforcing once the main
+  journey logs no violations, no secrets in client bundles, validated and authorized Server Actions, Origin
+  checks on Route Handlers, `pnpm audit`
+- a delivery pass (`delivery.md` §6): `curl -I` on each response type for the expected `Cache-Control`, the error
+  pages and status codes, offline behaviour with Playwright `setOffline`
+- an SEO pass on public routes (`seo-and-sharing.md` §8): titles, canonicals, `noindex` where planned, sitemap,
+  robots, JSON-LD parses, OG images render (Persian text included)
 - a final `paranoia` at the effort the user picks, or the full checklist yourself
 
 ## Phase 9: Handoff

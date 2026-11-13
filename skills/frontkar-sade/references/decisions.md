@@ -17,17 +17,18 @@ renamed, say so and offer its successor.
 - F. Optional features checklist (multi-select, ask first)
 - P. Project shape: P01–P04
 - R. Rendering: R01–R03
-- C. Data and caching: C01–C07
+- C. Data and caching: C01–C08
 - S. State and forms: S01–S03
 - U. UI: U01–U06
 - A. Auth: A01
 - I. i18n / RTL: I01–I02
 - T. Testing: T01–T05
 - Q. Code quality: Q01–Q04
-- D. Delivery: D01–D03
+- D. Delivery: D01–D04
+- E. SEO and sharing: E01–E02
 - O. Observability: O01–O04
-- X. Security: X01–X02
-- W. PWA / TWA / offline: W01–W02
+- X. Security: X01–X03
+- W. PWA / TWA / offline: W01–W03
 - G. Flags and analytics: G01–G02
 
 ---
@@ -55,6 +56,7 @@ ask: "Change anything? Name the rows; everything else is accepted."
 | C05 Validation | Zod | Ecosystem default (forms, env, actions) |
 | C06 Realtime | Per brief: none / SSE / WebSocket | — |
 | C07 No backend | Contract-first + backend adapter with an in-process seeded mock | Works in prerender and build; swap to the real API by env |
+| C08 Client reads | Route Handler GETs over the DAL, through TanStack Query; never reads via Server Actions | Actions are serialised POSTs: not cacheable, not parallel |
 | S01 Client state | Zustand (small, per-feature stores) | Minimal, no providers, selector-based |
 | S02 URL state | nuqs | Typed, shareable filters, server-readable |
 | S03 Forms | React Hook Form + Zod (complex), `useActionState` (simple) | Right tool per form size |
@@ -66,9 +68,14 @@ ask: "Change anything? Name the rows; everything else is accepted."
 | T* Testing | Vitest + Testing Library + MSW; Playwright + `@next/playwright` | Fast unit, real-browser e2e, instant-nav tests |
 | Q* Quality | ESLint (next) + Prettier + boundaries + knip, lefthook, commitlint | Enforced, not hoped |
 | D* Delivery | GitHub Actions; Docker standalone (or Vercel per brief); Renovate | — |
+| D04 HTTP caching | Next's headers for pages and `/_next/static`; explicit `Cache-Control` on every Route Handler; CDN purge next to `revalidateTag` | One owner per cache layer |
+| E01 SEO | Per-route `index`/`noindex` in the route map; metadata, canonical, sitemap, robots, JSON-LD | Public content apps live on search and shares |
+| E02 OG images | Static per section + generated `opengraph-image.tsx` for detail pages | Share cards per item without runtime cost |
 | O* Observability | Web vitals → `/api/vitals` → Prometheus; prom-client `/metrics`; OTel; Sentry | RUM + server metrics + traces + errors |
-| X* Security | Security headers + CSP (no nonce unless required); Zod env | Keeps the static shell |
+| X01 CSP | Tier A: `'unsafe-inline'` scripts + strict other directives, Report-Only first; nonce only if required | Keeps the static shell; a nonce makes every page dynamic |
+| X02/X03 Security | Zod env; actions authorize + validate + rate-limit; Origin check on Route Handlers; safe redirects; audit in CI | — |
 | W* PWA | Per brief | — |
+| W03 Offline level | L1 (`useOffline` + stale marking) always; L2 offline page with a PWA | Honest state beats a frozen spinner |
 
 ---
 
@@ -142,6 +149,8 @@ dependency breaks under it (then the previous model, written up as a risk).
 | **On (`partialPrefetching: true`)** | One App Shell per route, shared by all links. `prefetch={true}` on high-intent links for URL-specific cached content. Less prefetch traffic. |
 | Off | The legacy per-link prefetch. Only for apps that adopted Cache Components before 16.3. |
 | Per route (`export const prefetch = 'partial'`) | Incremental adoption. Not needed on a greenfield app. |
+Per link, whatever the global choice: `prefetch={true}` on high-intent links, `false` on long virtualised lists,
+hover-to-upgrade on cards, `force-disabled` on heavy private routes (`delivery.md` §2).
 
 ### R03. React Compiler
 | Option | Compare |
@@ -219,6 +228,16 @@ Always: the mock is deterministic (a seeded faker), simulates latency (e.g. 150�
 flags, and paginates, filters and sorts **on the "server" side** like a real API would, so the UI's server/client
 choices are realistic. Realtime is mocked with an SSE Route Handler (or a WS stub) that emits updates. Use MSW in
 tests in addition to the adapter.
+
+### C08. How client islands read data
+| Option | Compare |
+|---|---|
+| **Route Handler `GET` (BFF) over the same DAL, called by TanStack Query** | Cacheable (browser + CDN `s-maxage`), parallel, abortable, prefetchable. Auth by the same-origin cookie. One more file per endpoint. |
+| The client calls the backend directly | No hop. Only for public, CORS-enabled APIs with no secrets (a public price WS). |
+| Server Actions as reads | **Avoid.** Next dispatches actions one at a time per client, they're POSTs (no HTTP cache, no prefetch), and a search box would queue behind every mutation. |
+| Everything in Server Components, `router.refresh()` for updates | No client cache at all. Fine for low-interaction pages; too coarse for search-as-you-type or infinite lists. |
+**Default:** Server Components for the first render, Route Handler GETs for what the client fetches afterwards,
+actions for writes. Details and the adapter in `delivery.md` §1.
 
 ---
 
@@ -398,6 +417,34 @@ Conventional Commits + commitlint (default) · + changesets for versioned packag
 ### D03. Dependency updates
 Renovate (grouping, schedules, automerge for patch) · Dependabot (built into GitHub, simpler).
 
+### D04. HTTP caching and CDN
+| Option | Compare |
+|---|---|
+| **Next drives page headers (`cacheLife`), you set them on Route Handlers and unhashed `public/` files, the CDN honours `s-maxage` and purges next to `revalidateTag`** | One owner per layer. Needs the CDN to keep the RSC headers/`_rsc` in its key. |
+| No CDN; Node serves everything behind nginx | Simplest. Fine for one region. Put `/_next/static` on nginx's cache. |
+| Assets on a CDN domain (`assetPrefix`) | Offloads static traffic. Needs `crossOrigin`, the CDN origin in the CSP, and the old build's assets kept for skew. |
+`/_next/static` is `immutable` and can't be overridden. `/sw.js` is `no-cache`. Personal responses are
+`private, no-store`. Table and code in `delivery.md` §3.
+
+---
+
+## E. SEO and sharing (if any public route)
+
+### E01. SEO scope
+| Option | Compare |
+|---|---|
+| **Per-route policy in the route map (`index` / `index, canonical → X` / `noindex, follow` / `noindex`) + metadata defaults, `generateMetadata`, sitemap, robots, JSON-LD, staging `noindex`** | The senior default for anything public. Each route answers "should a search engine see this?" |
+| Minimal (title/description, robots disallow-all off-prod) | Behind-login tools with one public landing page |
+| None (`noindex` everywhere) | Internal apps |
+Patterns, code and tests in `seo-and-sharing.md`.
+
+### E02. Open Graph images
+| Option | Compare |
+|---|---|
+| **Static `opengraph-image.png` per section + generated `opengraph-image.tsx` (`next/og`) for detail pages** | Per-item cards, prerendered and cached through the DAL. Satori limits: flexbox only, 500 KB, test Persian shaping early. |
+| Static images only | Zero runtime; every share of an item looks the same |
+| Images from the CMS/backend | Designers own the cards; one more dependency |
+
 ---
 
 ## O. Observability (if ticked)
@@ -432,20 +479,28 @@ OTel logs only. Logging: **pino** JSON with a request id. No `console.log` in co
 ### X01. Content Security Policy
 | Option | Compare |
 |---|---|
-| **Header CSP without nonce (strict sources, hashes where needed) + full security headers** | Keeps static rendering and the PPR shell |
-| Nonce-based CSP via `proxy.ts` | The strongest inline-script control. **Forces dynamic rendering** for the pages that need it, losing the static shell. |
-| SRI (experimental) | Hash-based integrity without dynamic rendering. Experimental. |
-Always: HSTS, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, `frame-ancestors`,
-`poweredByHeader: false`, `import 'server-only'`, React taint APIs for secrets, `serverActions.allowedOrigins`
-behind proxies.
+| **Tier A: `script-src 'self' 'unsafe-inline'` + vendor origins, strict everything else (`object-src 'none'`, `base-uri`, `form-action`, `frame-ancestors 'none'`, a `connect-src` allowlist), Report-Only first** | Keeps the static shell, PPR and CDN caching. Next's inline RSC scripts run. |
+| Tier B: SRI (`experimental.sri`) + `script-src 'self'` | No `'unsafe-inline'` and still static. Experimental: verify no inline script is blocked in a production build. |
+| Tier C: nonce via `proxy.ts` + `'strict-dynamic'` | The strongest script control. **Every page renders per request**: no static shell, no ISR, no CDN HTML. |
+Never mix `'unsafe-inline'` with a hash or nonce in `script-src`: browsers then ignore `'unsafe-inline'` and Next's
+inline scripts break. `style-src` keeps `'unsafe-inline'` in every tier (Radix and motion write style
+attributes). Always: HSTS, `nosniff`, `Referrer-Policy`, `Permissions-Policy`, COOP, `poweredByHeader: false`.
+Details in `security.md` §2–3.
 
 ### X02. Env validation
 A Zod `env.ts` split into server and client schemas, parsed at boot (default), or `@t3-oss/env-nextjs`. Only the
 `NEXT_PUBLIC_*` keys the client needs. Build fails on a missing var.
 
+### X03. Application security baseline (always)
+Not a choice, a checklist the plan shows: every Server Action authenticates, validates, scopes by the session
+user and returns a DTO; Route Handlers check `Origin` on cookie-authenticated writes and verify webhook
+signatures; `?next=` goes through `safeNextPath`; DOMPurify for any HTML from data; `server-only` + taint in the
+DAL; rate limits on OTP, login and public endpoints; `pnpm audit` and a build-output secret search in CI.
+`security.md` has the code and the tests.
+
 ---
 
-## W. PWA / TWA / offline (if ticked)
+## W. PWA / TWA / offline (W01–W02 if ticked, W03 always)
 
 ### W01. PWA level
 | Option | Compare |
@@ -459,6 +514,15 @@ A Zod `env.ts` split into server and client schemas, parsed at boot (default), o
 Bubblewrap (or PWABuilder) → `/.well-known/assetlinks.json` served by a Route Handler or `public/`. The PWA
 must pass installability. Native-to-web handoff through query params or `postMessage`, never secrets in
 `localStorage`.
+
+### W03. Offline level (always asked, short)
+| Option | Compare |
+|---|---|
+| **L1: honest connectivity** (`experimental.useOffline`, TanStack `onlineManager`, a banner, live data marked stale) | Navigations and actions wait and retry instead of failing. No service worker. |
+| L2: + an offline page (service worker: network-first navigations → `/offline`, cache-first `/_next/static`) | Branded offline navigation. Comes with a PWA. |
+| L3: + offline reading (persisted query cache, cached public pages) | Real offline reading. Cache invalidation and shared-device privacy get harder. |
+| L4: + queued writes (Background Sync) | Only when the brief asks for offline work. |
+For live prices or balances, never show cached values as current. Code in `delivery.md` §5.
 
 ---
 

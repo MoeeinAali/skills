@@ -10,8 +10,8 @@
 | … | … | … |
 
 ## 3. Route map
-| Route | Audience | Strategy | Cached parts (profile · tags) | Dynamic holes | Prefetch | Guards | Notes |
-|---|---|---|---|---|---|---|---|
+| Route | Audience | Strategy | Cached parts (profile · tags) | Dynamic holes | Client reads | Prefetch | SEO | Guards | Notes |
+|---|---|---|---|---|---|---|---|---|---|
 
 ## 4. Data flow
 <The diagram from references/architecture.md §3, adapted. Where validation, caching, auth and error handling
@@ -29,7 +29,11 @@ happen.>
 - Auth: <session, proxy vs DAL responsibilities>
 - i18n/RTL: <…>
 - Observability: <vitals, metrics, traces, errors: where each goes>
-- Security: <headers, CSP choice, secrets>
+- Security: <CSP tier (X01) and why; headers; the X03 baseline: action/handler checks, redirects, rate limits,
+  secrets>
+- HTTP caching: <`Cache-Control` per response type, CDN and purge path, `deploymentId`/skew handling>
+- SEO: <index policy, metadata defaults, sitemap/robots, JSON-LD types, OG image approach>
+- Errors and offline: <error-page set, offline level (W03), what live data shows when offline>
 
 ## 8. NFR budgets
 | Metric | Budget | Measured by |

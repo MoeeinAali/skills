@@ -109,15 +109,16 @@ the tag builders in one module per feature (`features/x/server/tags.ts`). Never 
 ## 6. Route map format (goes in ARCHITECTURE.md)
 
 ```md
-| Route | Audience | Strategy | Cached parts (profile · tags) | Dynamic holes | Prefetch | Guards | Notes |
-|---|---|---|---|---|---|---|---|
-| `/` | public | static shell | hero, featured (`hours` · `markets`) | user greeting | default | – | `instant=true` |
-| `/markets/[symbol]` | public | ISR + live | header, stats (`ticker` · `market:{symbol}`) | order book (WS island), my orders | `prefetch={true}` from list | – | top 50 symbols in `generateStaticParams` |
-| `/wallet` | user | shell + private | – | balances (uncached), history (`use cache: private` · `minutes`) | `force-disabled` | session (proxy + DAL) | `ensureStatic='shell'` |
+| Route | Audience | Strategy | Cached parts (profile · tags) | Dynamic holes | Client reads | Prefetch | SEO | Guards | Notes |
+|---|---|---|---|---|---|---|---|---|---|
+| `/` | public | static shell | hero, featured (`hours` · `markets`) | user greeting | – | default | index | – | `instant=true` |
+| `/markets` | public | shell + cached list | first page (`minutes` · `markets`) | – | `GET /api/markets` (infinite, `s-maxage=5`) | rows `false`, hover → `true` | index; filters canonical → `/markets` | – | — |
+| `/markets/[symbol]` | public | ISR + live | header, stats (`ticker` · `market:{symbol}`) | order book (WS island), my orders | SSE `/api/stream/{symbol}` | `prefetch={true}` from list | index + JSON-LD + generated OG | – | top 50 symbols in `generateStaticParams` |
+| `/wallet` | user | shell + private | – | balances (uncached), history (`use cache: private` · `minutes`) | `GET /api/wallet/history` (`private, no-store`) | `force-disabled` | noindex | session (proxy + DAL) | `ensureStatic='shell'` |
 ```
 
-Every row must answer: what's in the static shell, what streams, who invalidates, and what the user sees while
-waiting.
+Every row must answer: what's in the static shell, what streams, who invalidates, what the user sees while
+waiting, how the client fetches after the first render, and whether search engines should see it.
 
 ## 7. Multi-instance and CDN (self-hosted)
 

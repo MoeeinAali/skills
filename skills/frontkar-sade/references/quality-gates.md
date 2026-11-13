@@ -56,7 +56,9 @@ output in e2e.
       `use cache: private`.
 - [ ] Each ADR has real alternatives, a consequence (the cost, not only the benefits) and "how enforced".
 - [ ] Decisions don't contradict each other (e.g. a nonce CSP with "static shell everywhere", or static export
-      with Server Actions, or Biome with the boundaries plugin).
+      with Server Actions, or Biome with the boundaries plugin, or a search box reading through Server Actions).
+- [ ] The route map has the client-reads, prefetch and SEO columns filled, and ARCHITECTURE.md names the CSP tier,
+      the `Cache-Control` per response type, the CDN purge path, the offline level and the error-page set.
 - [ ] The NFR budgets are numbers, and something measures each one (a CI job, RUM, Lighthouse).
 - [ ] "Deliberately out of scope" lists what was skipped and why.
 - [ ] The docs read plainly: no padding, no marketing adjectives, no statements that will go stale.
@@ -110,7 +112,16 @@ Language-agnostic rules (adapted from the user's gatekeeper review standards):
 - [ ] Loading (skeletons matching the layout), empty, error (`catchError`/`error.tsx` with retry) and not-found
       states exist for each data section.
 - [ ] `next/image` with `sizes` and dimensions, `next/font`, `next/link`. No layout shift from late content.
-- [ ] Metadata through `generateMetadata`/the static `metadata` export, not hand-written `<head>`.
+- [ ] Metadata through `generateMetadata`/the static `metadata` export, not hand-written `<head>`. Public routes
+      have a title, description, self-canonical (no canonical inherited from the root), JSON-LD that escapes `<`,
+      and an OG image. Private routes are `noindex`. `notFound()` runs before streaming.
+- [ ] Client islands read through Route Handler GETs (or the public API), never through Server Actions. Every
+      Route Handler sets `Cache-Control` (`public, s-maxage` for shared, `private, no-store` for personal).
+- [ ] Long link lists don't prefetch every row (`prefetch={false}` or hover-to-upgrade). Rendering has no side
+      effects that a prefetch would trigger.
+- [ ] Every new action: auth → rate limit if abusable → Zod → scoped by the session user → DTO result. Every new
+      cookie-authenticated non-GET handler calls `assertSameOrigin`. Redirect targets go through `safeNextPath`.
+      No `dangerouslySetInnerHTML` without a sanitiser.
 - [ ] Dev overlay: no blocking-route, blocking-prerender-* or instant-navigation insights on the touched routes.
 - [ ] The slice implements its row of the technique map (`techniques.md`): skeletons sized like the content,
       debounced search, the right pagination type, virtualization above the row threshold, optimistic updates
@@ -125,8 +136,16 @@ Language-agnostic rules (adapted from the user's gatekeeper review standards):
 - [ ] `next analyze`: no unexpected large client modules (date libs, lodash, chart libraries on routes that don't
       chart). `optimizePackageImports` for icon and util libraries where it helps.
 - [ ] The vitals on the main journeys meet the budgets (Lighthouse, or a `web-vitals` attribution build).
-- [ ] Security headers are present (`curl -I`). The CSP blocks nothing legitimate (browser console). No env
-      values in `.next/static` (`grep -r` for secrets).
+- [ ] Security headers are present (`curl -I`). The CSP blocks nothing legitimate (browser console and the
+      Playwright CSP listener), then moves from Report-Only to enforcing. `script-src` doesn't mix
+      `'unsafe-inline'` with hashes or nonces. No env values in `.next/static` (`grep -r` for secrets).
+      `pnpm audit` has no new highs.
+- [ ] `Cache-Control` per response type matches `delivery.md` §3 (`/_next/static` immutable, dynamic pages
+      `private`, `sw.js` `no-cache`, API routes explicit).
+- [ ] Error pages: `404` status for missing items, a section error keeps the rest of the page, `global-error`
+      renders. The offline level works with Playwright `setOffline`.
+- [ ] Public routes: sitemap and robots return `200`, staging is `noindex`, OG images render (including Persian
+      text, or the fallback chosen).
 - [ ] Multi-instance readiness if self-hosting: the encryption key, `deploymentId`, the shared cache decision
       documented, and health and readiness endpoints that return per request.
 - [ ] README, ARCHITECTURE.md, the ADRs and AGENTS.md match the code as built.

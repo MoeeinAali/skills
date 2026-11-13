@@ -33,6 +33,15 @@ decisions:
   C06:
     choice: websocket
     why: "order book updates ~10/s"
+  C08:
+    choice: route-handler-get
+    why: "search and infinite lists need cacheable, parallel, abortable GETs; actions are serialised POSTs"
+  X01:
+    choice: tier-a-unsafe-inline
+    why: "keeps the PPR static shell and CDN caching; nonce would make every page dynamic"
+  E01:
+    choice: per-route-policy
+    why: "market pages are the acquisition channel; account pages are noindex"
   W01:
     choice: skipped
     why: "not in brief; listed as follow-up"

@@ -102,8 +102,8 @@ anything that changed since 16.4.
 5. `updateTag` and `refresh` **throw outside Server Actions**. From Route Handlers or webhooks, use
    `revalidateTag(tag, 'max')`.
 6. A CSP **nonce** forces dynamic rendering for every page that needs it (the nonce is per request). That cancels
-   the static shell. Prefer a hash/strict-dynamic CSP, or SRI (experimental) where possible
-   (`guides/content-security-policy.md`).
+   the static shell. Without a nonce, Next's inline scripts need `'unsafe-inline'` (or SRI, experimental), and
+   adding any hash next to `'unsafe-inline'` disables it (`security.md` §2, `guides/content-security-policy.md`).
 7. Self-hosted multi-instance setups break three ways if you skip the setup: "Failed to find Server Action" (the
    encryption key differs), stale caches differ per pod (no shared handler or tag coordination), and version skew
    during a rolling deploy (no `deploymentId`).
