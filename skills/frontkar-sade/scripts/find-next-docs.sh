@@ -7,7 +7,7 @@ dir="$(cd "${1:-.}" && pwd)"
 while [ "$dir" != "/" ]; do
   pkg="$dir/node_modules/next/package.json"
   if [ -f "$pkg" ]; then
-    version="$(node -p "require('$pkg').version")"
+    version="$(node -p 'require(process.argv[1]).version' "$pkg")"
     docs="$dir/node_modules/next/dist/docs"
     echo "next_version=$version"
     if [ -d "$docs" ]; then

@@ -23,7 +23,7 @@ gates=(format:check typecheck lint knip test)
 [ "$mode" != "quick" ] && gates+=(build)
 [ "$mode" = "full" ] && gates+=(test:e2e)
 
-has_script() { node -e "process.exit(require('./package.json').scripts?.['$1'] ? 0 : 1)"; }
+has_script() { node -e 'process.exit(require("./package.json").scripts?.[process.argv[1]] ? 0 : 1)' "$1"; }
 
 for gate in "${gates[@]}"; do
   if ! has_script "$gate"; then
